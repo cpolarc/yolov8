@@ -4,38 +4,46 @@ import torch
 
 import math
 
-class Conv2d(nn.Module):
-    def __init__(self, c1, c2, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=False,act=True):
-        super(Conv2d, self).__init__()
-        self.in_channels = c1
-        self.out_channels = c2
-        self.kernel_size = kernel_size
-        self.stride = stride
-        self.padding = padding
-        self.dilation = dilation
-        self.groups = groups
-        self.bias = bias
-        self.act = act
-        # Initialize weights and bias
-        self.cv2 = nn.Conv2d(c1, c2, 1, stride, autopad(1, padding, dilation), groups=groups, dilation=dilation, bias=False)  # add 1x1 conv
-        self.conv = nn.Conv2d(c1, c2, kernel_size, stride, autopad(kernel_size, padding, dilation), groups=groups, dilation=dilation, bias=False)
+
+def autopad(k, p=None, d=1):  # kernel, padding, dilation
+    """Pad to 'same' shape outputs."""
+    if d > 1:
+        k = d * (k - 1) + 1 if isinstance(k, int) else [d * (x - 1) + 1 for x in k]  # actual kernel-size
+    if p is None:
+        p = k // 2 if isinstance(k, int) else [x // 2 for x in k]  # auto-pad
+    return p
+
+class Conv(nn.Module):
+    # Standard convolution
+    default_act = nn.SiLU()
+
+    def __init__(self, c1, c2, k=1, s=1, p=None, g=1, d=1, act=True):  # ch_in, ch_out, kernel, stride, padding, groups
+
+        super().__init__()#存放所有的模块，存放可训练的张量，用于存放不可训练的张量。
+        self.conv = nn.Conv2d(c1, c2, k, s, autopad(k, p, d), dilation=d, groups=g, bias=False)
         self.bn = nn.BatchNorm2d(c2)
+        self.act = self.default_act if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
 
-        self.weight = nn.Parameter(torch.Tensor(c2, c1 // groups, *kernel_size))
-        if bias:
-            self.bias_param = nn.Parameter(torch.Tensor(c2))
-        else:
-            self.register_parameter('bias_param', None)
+    def forward(self, x):
+        return self.act(self.bn(self.conv(x)))
 
-        # Initialize weights and bias
-        self.reset_parameters()
+    def forward_fuse(self, x):
+        return self.act(self.conv(x))
 
-    def reset_parameters(self):
-        nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
-        if self.bias_param is not None:
-            fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weight)
-            bound = 1 / math.sqrt(fan_in)
-            nn.init.uniform_(self.bias_param, -bound, bound)
+class Conv2d(Conv):
+    def __init__(self, c1, c2, k=3, s=1, p=None, d=1, g=1,act=True):
+        super().__init__(c1, c2, k, s, p, g=g, d=d, act=act)
+        self.cv2 = nn.Conv2d(c1, c2, 1, s, autopad(1, p), groups=g, bias=False)
+
+    def fuse_convs(self):
+        """Fuse parallel convolutions."""
+        w = torch.zeros_like(self.conv.weight.data)
+        i = [x // 2 for x in w.shape[2:]]
+        w[:, :, i[0] : i[0] + 1, i[1] : i[1] + 1] = self.cv2.weight.data.clone()
+        self.conv.weight.data += w
+        self.__delattr__("cv2")
+        self.forward = self.forward_fuse
+
 
     def forward(self, x):
         return self.act(self.bn(self.conv(x) + self.cv2(x)))
