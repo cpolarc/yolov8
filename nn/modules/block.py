@@ -21,14 +21,14 @@ class C2f(nn.Module):#数据流 一个张量进入 1*1卷积 分离 一部分直
 
     def __init__(self, c1: int, c2: int, n: int = 1, shortcut: bool = False, g: int = 1, e: float = 0.5):
         super().__init__()
-        c = int(c2 * e)  # hidden channels
+        self.c = int(c2 * e)  # hidden channels
         self.cv1 = Conv(c1, 2*self.c, 1, 1)
         self.cv2 = Conv((2+n)*self.c, c2, 1)
-        self.m = nn.Sequential(*[Bottleneck(c, c, shortcut, g, e=1.0) for _ in range(n)])  # module list
+        self.m = nn.ModuleList([Bottleneck(self.c, self.c, shortcut, g, e=1.0) for _ in range(n)])  # module list
 
     def forward(self, x:torch.Tensor) -> torch.Tensor:
         y = list(self.cv1(x).chunk(2, 1))  # split channels
-        y.extend(self.m(y[1]))  # apply bottlenecks
+        y.extend([m(y[-1]) for m in self.m])  # apply bottlenecks
         return self.cv2(torch.cat(y, 1))  # concatenate and apply final conv
 
     def forward_split(self, x:torch.Tensor) -> torch.Tensor:
@@ -37,7 +37,7 @@ class C2f(nn.Module):#数据流 一个张量进入 1*1卷积 分离 一部分直
         y.extend(m(y[-1]) for m in self.m)  # apply bottlenecks
         return self.cv2(torch.cat(y, 1))  # concatenate and apply final conv
 
-class sppf(nn.Module):
+class SPPF(nn.Module):
     def __init__(self, c1: int, c2: int, k: int = 5, n: int = 3, shortcut: bool = False):
 
         super().__init__()
