@@ -36,3 +36,21 @@ class C2f(nn.Module):#数据流 一个张量进入 1*1卷积 分离 一部分直
         y=[y[0],y[1]]
         y.extend(m(y[-1]) for m in self.m)  # apply bottlenecks
         return self.cv2(torch.cat(y, 1))  # concatenate and apply final conv
+
+class sppf(nn.Module):
+    def __init__(self, c1: int, c2: int, k: int = 5, n: int = 3, shortcut: bool = False):
+
+        super().__init__()
+        c_ = c1 // 2  # hidden channels
+        self.cv1 = Conv(c1, c_, 1, 1)
+        self.cv2 = Conv(c_ * (n + 1), c2, 1, 1)
+        self.m = nn.MaxPool2d(kernel_size=k, stride=1, padding=k // 2)
+        self.n=n
+        self.add=shortcut and c1 == c2
+
+    def forward(self, x:torch.Tensor) -> torch.Tensor:
+        y=[self.cv1(x)]
+        y.extend([self.m(y[-1]) for _ in range(getattr(self,'n',3))])
+        y= self.cv2(torch.cat(y, 1))
+        return x+y if getattr(self,'add',False) else y
+
