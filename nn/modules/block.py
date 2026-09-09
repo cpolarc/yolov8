@@ -28,7 +28,7 @@ class C2f(nn.Module):#数据流 一个张量进入 1*1卷积 分离 一部分直
 
     def forward(self, x:torch.Tensor) -> torch.Tensor:
         y = list(self.cv1(x).chunk(2, 1))  # split channels
-        y.extend([m(y[-1]) for m in self.m])  # apply bottlenecks
+        y.extend(m(y[-1]) for m in self.m)  # apply bottlenecks
         return self.cv2(torch.cat(y, 1))  # concatenate and apply final conv
 
     def forward_split(self, x:torch.Tensor) -> torch.Tensor:
@@ -50,7 +50,7 @@ class SPPF(nn.Module):
 
     def forward(self, x:torch.Tensor) -> torch.Tensor:
         y=[self.cv1(x)]
-        y.extend([self.m(y[-1]) for _ in range(getattr(self,'n',3))])
+        y.extend(self.m(y[-1]) for _ in range(getattr(self,'n',3)))
         y= self.cv2(torch.cat(y, 1))
         return x+y if getattr(self,'add',False) else y
 
